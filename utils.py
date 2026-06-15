@@ -622,7 +622,7 @@ def test_X(gene_fts, labels_of_gene):
 
     print('begining test_X......')
 
-    gene_data = np.concatenate((gene_fts, np.reshape(labels_of_gene, newshape=[-1, 1])), axis=1)
+    gene_data = np.concatenate((gene_fts, np.reshape(labels_of_gene, (-1, 1))), axis=1)
     final_list = []
     for i in range(10):
         gene_data = shuffle(gene_data, random_state=72)
@@ -716,9 +716,9 @@ def test_AX(gene_data, labels_of_gene, adj):
             test_idx = torch.LongTensor(test_idx)
             train_fts = features[train_idx]
             test_fts = features[test_idx]
-            featured_train_idx = train_idx[(train_fts.sum(1) != 0).nonzero().reshape([-1])]
-            featured_test_idx = test_idx[(test_fts.sum(1) != 0).nonzero().reshape([-1])]
-            non_featured_test_idx = test_idx[(test_fts.sum(1) == 0).nonzero().reshape([-1])]
+            featured_train_idx = train_idx[(train_fts.sum(1) != 0).nonzero().reshape([-1]).cpu()]
+            featured_test_idx = test_idx[(test_fts.sum(1) != 0).nonzero().reshape([-1]).cpu()]
+            non_featured_test_idx = test_idx[(test_fts.sum(1) == 0).nonzero().reshape([-1]).cpu()]
             featured_train_lbls = labels_of_gene[featured_train_idx]
             featured_test_lbls = labels_of_gene[featured_test_idx]
             non_featured_test_lbls = labels_of_gene[non_featured_test_idx]
