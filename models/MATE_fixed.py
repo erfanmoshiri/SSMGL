@@ -166,6 +166,44 @@ class EdgeDecoder(nn.Module):
 
 
 
+def compute_neighborhood_density(adj, true_features, train_id):
+    """
+    Pre-compute neighborhood feature density for SSL objective.
+    For each node, compute proportion of OBSERVABLE neighbors with each feature.
+
+    Args:
+        adj: Sparse adjacency matrix (FULL graph, before masking)
+        true_features: Features with missing nodes = 0
+        train_id: Indices of observable nodes
+
+    Returns:
+        density: (N, F) tensor with density values in [0, 1]
+    """
+    num_nodes = true_features.size(0)
+    device = true_features.device
+
+    # Convert to dense for easier indexing
+    adj_dense = adj.to_dense()
+
+    # Create mask for observable nodes
+    train_mask = torch.zeros(num_nodes, dtype=torch.bool, device=device)
+    train_mask[train_id] = True
+
+    # Initialize density
+    density = torch.zeros_like(true_features)
+
+    # For each node, compute density from observable neighbors
+    for node_i in range(num_nodes):
+        neighbors = adj_dense[node_i].nonzero(as_tuple=True)[0]
+        obs_neighbors = neighbors[train_mask[neighbors]]
+
+        if len(obs_neighbors) > 0:
+            # Mean of neighbor features (proportion with each feature active)
+            density[node_i] = true_features[obs_neighbors].float().mean(dim=0)
+
+    return density
+
+
 def compute_fixed_features(adj, true_features, train_id, vali_test_id):
     """
     Compute fixed features for missing nodes using neighbor averaging.
@@ -231,6 +269,8 @@ class Model(nn.Module):
             mask=None,
             random_negative_sampling=False,
             loss="ce",
+            feature_dim=None,  # For density predictor
+            hidden_dim=None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -241,6 +281,16 @@ class Model(nn.Module):
         self.temp = temp
         self.pos_weight_tensor = pos_weight_tensor
         self.neg_weight_tensor = neg_weight_tensor
+
+        # Neighborhood density predictor (2-layer MLP)
+        if feature_dim is not None and hidden_dim is not None:
+            self.density_predictor = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, feature_dim)
+            )
+        else:
+            self.density_predictor = None
 
         if loss == "ce":
             self.loss_edgefn = ce_loss
@@ -280,7 +330,8 @@ class Model(nn.Module):
 
 
     def train_one_epoch(
-            self, data_1, data_2, norm_adj, fixed_features, train_fts_idx, vali_test_fts_idx, batch_size=2 ** 16):
+            self, data_1, data_2, norm_adj, fixed_features, train_fts_idx, vali_test_fts_idx,
+            target_density=None, batch_size=2 ** 16):
         """
         Train one epoch with FIXED features.
         """
@@ -335,8 +386,16 @@ class Model(nn.Module):
             loss_recon = self.rec_loss(x_recon[train_fts_idx], x_1_[train_fts_idx], self.pos_weight_tensor,
                                        self.neg_weight_tensor)
 
+            # Neighborhood density SSL loss
+            loss_density = torch.tensor(0.0, device=z.device)
+            if self.density_predictor is not None and target_density is not None:
+                pred_density = self.density_predictor(z)
+                loss_density = F.mse_loss(pred_density, target_density)
+
             # loss_total = loss_edge + loss_con + loss_recon
-            loss_total = loss_edge + loss_recon
+            print(f'loss density: {100 * loss_density}, other losses: {loss_edge + loss_recon}')
+            # print(f'loss contrastive: {loss_con}')
+            loss_total = loss_edge + loss_recon + (100 * loss_density)
 
 
-        return loss_total, loss_edge, loss_con, loss_recon
+        return loss_total, loss_edge, loss_con, loss_recon, loss_density

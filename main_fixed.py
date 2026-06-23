@@ -88,6 +88,11 @@ def main(args):
     fixed_features = compute_fixed_features(adj, true_features, train_id, vali_test_id)
     print(f'Fixed features computed for {len(vali_test_id)} missing nodes')
 
+    # Compute neighborhood density SSL target (once before training)
+    print('Computing neighborhood density for SSL objective...')
+    target_density = compute_neighborhood_density(adj, true_features, train_id)
+    print(f'Neighborhood density computed for all nodes')
+
     encoder = GNNEncoder(data_1.num_features, args.encoder_channels, args.hidden_channels,
                          num_layers=args.encoder_layers, dropout=args.encoder_dropout,
                          bn=args.bn, layer=args.layer, activation=args.encoder_activation)
@@ -101,7 +106,8 @@ def main(args):
     con_projector = Con_Projector(args.hidden_channels, args.encoder_channels, out_channels=data_1.num_features,
                           num_layers=args.decoder_layers, dropout=args.decoder_dropout)
 
-    model = Model(encoder, edge_decoder, projector, con_projector, args.temp, pos_weight_tensor, neg_weight_tensor, mask)
+    model = Model(encoder, edge_decoder, projector, con_projector, args.temp, pos_weight_tensor, neg_weight_tensor, mask,
+                  feature_dim=data_1.num_features, hidden_dim=args.hidden_channels)
 
     # ONLY ONE OPTIMIZER - no optimizer_learner!
     optimizer = optim.Adam(model.parameters(), lr=args.lr,
@@ -117,6 +123,7 @@ def main(args):
         data_2 = data_2.cuda()
         model = model.cuda()
         fixed_features = fixed_features.cuda()
+        target_density = target_density.cuda()
         norm_adj = norm_adj.cuda()
 
     eva_values_list = []
@@ -127,7 +134,8 @@ def main(args):
         'total': [],
         'edge': [],
         'contrastive': [],
-        'reconstruction': []
+        'reconstruction': [],
+        'density': []
     }
 
     print('---------------------start training (FIXED features)------------------------')
@@ -135,8 +143,8 @@ def main(args):
         model.train()
 
         # NO feature_learn.train() - features are FIXED!
-        loss_total, loss_edge, loss_con, loss_recon = model.train_one_epoch(
-            data_1, data_2, norm_adj, fixed_features, train_id, vali_test_id)
+        loss_total, loss_edge, loss_con, loss_recon, loss_density = model.train_one_epoch(
+            data_1, data_2, norm_adj, fixed_features, train_id, vali_test_id, target_density=target_density)
 
         optimizer.zero_grad()
         loss_total.backward()
@@ -148,6 +156,7 @@ def main(args):
         loss_history['edge'].append(loss_edge.item())
         loss_history['contrastive'].append(loss_con.item())
         loss_history['reconstruction'].append(loss_recon.item())
+        loss_history['density'].append(loss_density.item())
 
         if epoch % 20 == 0:
             model.eval()
@@ -190,6 +199,7 @@ def main(args):
     print(f"Final Edge Loss: {loss_history['edge'][-1]:.4f}")
     print(f"Final Contrastive Loss: {loss_history['contrastive'][-1]:.4f}")
     print(f"Final Reconstruction Loss: {loss_history['reconstruction'][-1]:.4f}")
+    print(f"Final Density Loss: {loss_history['density'][-1]:.4f}")
     print("="*60)
 
 
