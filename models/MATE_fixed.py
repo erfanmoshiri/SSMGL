@@ -335,7 +335,8 @@ class Model(nn.Module):
             loss_recon = self.rec_loss(x_recon[train_fts_idx], x_1_[train_fts_idx], self.pos_weight_tensor,
                                        self.neg_weight_tensor)
 
-            loss_total = loss_edge + loss_con + loss_recon
+            # loss_total = loss_edge + loss_con + loss_recon
+            loss_total = loss_edge + loss_recon
 
 
         return loss_total, loss_edge, loss_con, loss_recon
