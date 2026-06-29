@@ -142,13 +142,13 @@ def load_data(args):
         names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
         objects = []
         for i in range(len(names)):
-            with open("./data/{}/ind.{}.{}".format(args.dataset, args.dataset, names[i]), 'rb') as f:
+            with open("../data/{}/ind.{}.{}".format(args.dataset, args.dataset, names[i]), 'rb') as f:
                 if sys.version_info > (3, 0):
                     objects.append(pkl.load(f, encoding='latin1'))
                 else:
                     objects.append(pkl.load(f))
         x, y, tx, ty, allx, ally, graph = tuple(objects)
-        test_idx_reorder = parse_index_file("./data/{}/ind.{}.test.index".format(args.dataset, args.dataset))
+        test_idx_reorder = parse_index_file("../data/{}/ind.{}.test.index".format(args.dataset, args.dataset))
         test_idx_range = np.sort(test_idx_reorder)
         if args.dataset == 'citeseer':
             test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder) + 1)
@@ -162,13 +162,13 @@ def load_data(args):
         features[test_idx_reorder, :] = features[test_idx_range, :]
         adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
 
-        datadir = os.path.join(f'./data/{args.dataset}/diff.npy')
+        datadir = os.path.join(f'../data/{args.dataset}/diff.npy')
         if not os.path.exists(datadir):
             adj_numpy = nx.to_numpy_array(nx.from_dict_of_lists(graph))
             diff = compute_ppr(adj_numpy, 0.2)
-            np.save(f'./data/{args.dataset}/diff.npy', diff)
+            np.save(f'../data/{args.dataset}/diff.npy', diff)
         else:
-            diff = np.load(f'./data/{args.dataset}/diff.npy')
+            diff = np.load(f'../data/{args.dataset}/diff.npy')
         diff = torch.FloatTensor(diff)
 
         labels = np.vstack((ally, ty))
@@ -186,7 +186,7 @@ def load_data(args):
         adj = torch.sparse.FloatTensor(indices, values, torch.Size(adj.shape))
         features = torch.from_numpy(np.array(features.todense())).float()
     elif args.dataset in ['amac']:
-        data = load_npz_to_sparse_graph(os.path.join(os.getcwd(), 'data', 'amac', 'amazon_electronics_computers.npz'))
+        data = load_npz_to_sparse_graph(os.path.join('..', 'data', 'amac', 'amazon_electronics_computers.npz'))
         features = data.attr_matrix.todense()
         if not args.generative_flag:
             features = normalize_features(features)
@@ -196,13 +196,13 @@ def load_data(args):
         adj.data = np.ones_like(adj.data)
         adj = adj.tocoo()
 
-        datadir = os.path.join(f'./data/{args.dataset}/diff.npy')
+        datadir = os.path.join(f'../data/{args.dataset}/diff.npy')
         if not os.path.exists(datadir):
             adj_numpy = np.array(adj.toarray())
             diff = compute_ppr(adj_numpy, 0.2)
-            np.save(f'./data/{args.dataset}/diff.npy', diff)
+            np.save(f'../data/{args.dataset}/diff.npy', diff)
         else:
-            diff = np.load(f'./data/{args.dataset}/diff.npy')
+            diff = np.load(f'../data/{args.dataset}/diff.npy')
         diff = torch.FloatTensor(diff)
 
         adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
@@ -214,7 +214,7 @@ def load_data(args):
         adj = torch.sparse.FloatTensor(indices, values, torch.Size(adj.shape))
         labels = torch.from_numpy(data.labels).long()
     elif args.dataset in ['amap']:
-        data = load_npz_to_sparse_graph(os.path.join(os.getcwd(), 'data', 'amap', 'amazon_electronics_photo.npz'))
+        data = load_npz_to_sparse_graph(os.path.join('..', 'data', 'amap', 'amazon_electronics_photo.npz'))
         features = data.attr_matrix.todense()
         if not args.generative_flag:
             features = normalize_features(features)
@@ -224,13 +224,13 @@ def load_data(args):
         adj.data = np.ones_like(adj.data)
         adj = adj.tocoo()
         #
-        datadir = os.path.join(f'./data/{args.dataset}/diff.npy')
+        datadir = os.path.join(f'../data/{args.dataset}/diff.npy')
         if not os.path.exists(datadir):
             adj_numpy = np.array(adj.toarray())
             diff = compute_ppr(adj_numpy, 0.2)
-            np.save(f'./data/{args.dataset}/diff.npy', diff)
+            np.save(f'../data/{args.dataset}/diff.npy', diff)
         else:
-            diff = np.load(f'./data/{args.dataset}/diff.npy')
+            diff = np.load(f'../data/{args.dataset}/diff.npy')
         diff = torch.FloatTensor(diff)
 
         adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
@@ -495,11 +495,12 @@ def save_generative_fts(args, gene_X, T, train_fts_idx, vali_fts_idx, test_fts_i
         train_fts_idx_arr = train_fts_idx.numpy()
         vali_fts_idx_arr = vali_fts_idx.numpy()
         test_fts_idx_arr = test_fts_idx.numpy()
-    save_fts = np.zeros(shape=T.shape)
-    save_fts[train_fts_idx_arr] = train_fts
-    save_fts[vali_fts_idx_arr] = vali_fts
-    save_fts[test_fts_idx_arr] = output_fts
-    pickle.dump(save_fts, open(os.path.join(os.getcwd(), 'features', 'final_gene_fts_train_ratio_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)), 'wb'))
+    # Feature saving disabled - not needed
+    # save_fts = np.zeros(shape=T.shape)
+    # save_fts[train_fts_idx_arr] = train_fts
+    # save_fts[vali_fts_idx_arr] = vali_fts
+    # save_fts[test_fts_idx_arr] = output_fts
+    # pickle.dump(save_fts, open(os.path.join(os.getcwd(), 'features', 'final_gene_fts_train_ratio_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)), 'wb'))
 
 
 
@@ -507,9 +508,9 @@ def test_model(args, model, norm_adj, feature_learn, T, data_1, data_2, train_id
     print('Loading well-trained model'.format(args.epoch))
 
     model.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'final_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
+        torch.load(os.path.join('..', 'best_model', 'final_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
     feature_learn.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'ft_learn_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
+        torch.load(os.path.join('..', 'best_model', 'ft_learn_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
     
     model.eval()
     feature_learn.eval()
@@ -639,7 +640,9 @@ def test_X(gene_fts, labels_of_gene):
             acc_list.append(acc)
         avg_acc = np.mean(acc_list)
         final_list.append(avg_acc)
-    print('classification performance: {}'.format(np.mean(final_list)))
+    result = np.mean(final_list)
+    print('classification performance: {}'.format(result))
+    return result
 
 class GCNLayer(nn.Module):
 
@@ -759,4 +762,6 @@ def test_AX(gene_data, labels_of_gene, adj):
             acc_list.append(best_acc)
         avg_acc = np.mean(acc_list)
         final_list.append(avg_acc)
-    print('GCN(A+X),  avg accuracy: {}'.format(np.mean(final_list)))
+    result = np.mean(final_list)
+    print('GCN(A+X),  avg accuracy: {}'.format(result))
+    return result

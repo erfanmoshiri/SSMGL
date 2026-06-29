@@ -1,7 +1,9 @@
 import argparse
 from torch import optim
+import sys
+sys.path.insert(0, '..')
 from models.MATE import *
-from utils import *
+from src.utils import *
 import warnings
 import random
 from tqdm import tqdm
@@ -141,17 +143,17 @@ def main(args):
             eva_values_list.append(avg_recall)
             if eva_values_list[-1] > best:
                 torch.save(model.state_dict(),
-                           os.path.join(os.getcwd(), 'model',
+                           os.path.join('..', 'best_model',
                                         'final_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)))                
-                torch.save(feature_learn.state_dict(), os.path.join(os.getcwd(), 'model',
+                torch.save(feature_learn.state_dict(), os.path.join('..', 'best_model',
                         'ft_learn_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)))
                 best = eva_values_list[-1]
 
 
     model.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'final_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
+        torch.load(os.path.join('..', 'best_model', 'final_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
     feature_learn.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'ft_learn_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))    
+        torch.load(os.path.join('..', 'best_model', 'ft_learn_model_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))    
     
     model.eval()
     feature_learn.eval()
@@ -167,7 +169,7 @@ def main(args):
     
 if __name__ == "__main__":
     args = parser.parse_args()
-    args = load_best_configs(args, "configs.yml")
+    args = load_best_configs(args, "../configs.yml")
     print(args)
     torch.cuda.set_device(f'cuda:{args.device}')
     main(args)

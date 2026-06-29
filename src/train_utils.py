@@ -16,7 +16,7 @@ def create_run_folder(dataset, model_type="learnable"):
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name = f"{dataset}_{model_type}_{timestamp}"
-    run_dir = os.path.join("runs", run_name)
+    run_dir = os.path.join("..", "runs", run_name)
     os.makedirs(run_dir, exist_ok=True)
     return run_dir
 

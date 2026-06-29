@@ -1,7 +1,9 @@
 import argparse
 from torch import optim
+import sys
+sys.path.insert(0, '..')
 from models.MATE_fixed import *
-from utils import *
+from src.utils import *
 import warnings
 import random
 from tqdm import tqdm
@@ -53,6 +55,12 @@ parser.add_argument('--temp', type=float, default=0.2)
 
 
 def main(args):
+    from train_utils import create_run_folder, save_config, save_epoch_metrics, save_final_results
+
+    # Create timestamped run folder
+    run_dir = create_run_folder(args.dataset, model_type="fixed")
+    save_config(run_dir, args)
+
     set_random_seed(72)
     adj, diff, norm_adj, true_features, node_labels, indices = load_data(args)
 
@@ -167,29 +175,51 @@ def main(args):
             avg_recall, avg_ndcg = RECALL_NDCG(
                 gene_fts, gt_fts, topN=args.topK_list[2])
             eva_values_list.append(avg_recall)
+
+            # Log epoch metrics
+            save_epoch_metrics(run_dir, epoch, {
+                'loss_total': loss_total.item(),
+                'loss_edge': loss_edge.item(),
+                'loss_contrastive': loss_con.item(),
+                'loss_reconstruction': loss_recon.item(),
+                'loss_density': loss_density.item(),
+                'recall': avg_recall,
+                'ndcg': avg_ndcg
+            })
+
             if eva_values_list[-1] > best:
                 torch.save(model.state_dict(),
-                           os.path.join(os.getcwd(), 'model',
+                           os.path.join('..', 'best_model',
                                         'final_model_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)))
                 # Save loss history
-                torch.save(loss_history, os.path.join(os.getcwd(), 'model',
+                torch.save(loss_history, os.path.join('..', 'best_model',
                                         'loss_history_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio)))
                 best = eva_values_list[-1]
 
 
     model.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'final_model_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
+        torch.load(os.path.join('..', 'best_model', 'final_model_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
 
     model.eval()
-    _,_ = test_model_fixed(args, model, norm_adj, fixed_features, Ture_feature,
+    recall_50, ndcg_50 = test_model_fixed(args, model, norm_adj, fixed_features, Ture_feature,
                                 data_1, data_2, train_id, vali_id, vali_test_id, test_id)
     with torch.no_grad():
         x_hat = model(data_1, data_2, norm_adj, fixed_features, train_id, vali_test_id)
         gene_data = x_hat[test_id]
         labels_of_gene = node_labels[test_id]
     adj = adj.to_dense()
-    test_X(gene_data.cpu().numpy(), labels_of_gene.cpu().numpy())
-    test_AX(gene_data.cpu().numpy(), labels_of_gene.cpu().numpy(), adj[test_id, :][:, test_id].cpu().numpy())
+    acc_x = test_X(gene_data.cpu().numpy(), labels_of_gene.cpu().numpy())
+    acc_ax = test_AX(gene_data.cpu().numpy(), labels_of_gene.cpu().numpy(), adj[test_id, :][:, test_id].cpu().numpy())
+
+    # Save final test results
+    save_final_results(run_dir, {
+        'recall@50': recall_50,
+        'ndcg@50': ndcg_50,
+        'accuracy_X': acc_x,
+        'accuracy_AX': acc_ax,
+        'dataset': args.dataset,
+        'train_ratio': args.train_fts_ratio
+    })
 
     # Print final loss summary
     print("\n" + "="*60)
@@ -208,7 +238,7 @@ def test_model_fixed(args, model, norm_adj, fixed_features, T, data_1, data_2, t
     print('Loading well-trained model (FIXED features)')
 
     model.load_state_dict(
-        torch.load(os.path.join(os.getcwd(), 'model', 'final_model_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
+        torch.load(os.path.join('..', 'best_model', 'final_model_fixed_{}_{}.pkl'.format(args.dataset, args.train_fts_ratio))))
 
     model.eval()
 
@@ -242,7 +272,7 @@ def test_model_fixed(args, model, norm_adj, fixed_features, T, data_1, data_2, t
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    args = load_best_configs(args, "configs.yml")
+    args = load_best_configs(args, "../configs.yml")
     print(args)
     torch.cuda.set_device(f'cuda:{args.device}')
     main(args)

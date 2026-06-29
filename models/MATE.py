@@ -5,7 +5,7 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.utils import add_self_loops, negative_sampling
 from torch_sparse import SparseTensor
 from torch.utils.data import DataLoader
-from loss import *
+from src.loss import *
 
 
 def edgeidx2sparse(edge_index, num_nodes):

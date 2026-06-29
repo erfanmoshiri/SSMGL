@@ -5,7 +5,7 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.utils import add_self_loops, negative_sampling
 from torch_sparse import SparseTensor
 from torch.utils.data import DataLoader
-from loss import *
+from src.loss import *
 
 
 def edgeidx2sparse(edge_index, num_nodes):
@@ -324,7 +324,8 @@ class Model(nn.Module):
 
         z_1 = self.encoder(x_1, edge_index_1)
         z_2 = self.encoder(x_2, edge_index_1)
-        z = (z_1 + z_2) * 0.5
+        # z = (z_1 + z_2) * 0.5  # Fusion disabled
+        z = z_1  # Use only View 1
         out = self.projector(z)
         return out
 
@@ -364,22 +365,23 @@ class Model(nn.Module):
             batch_neg_edges = neg_edges[:, perm]
 
             pos_out_1 = self.edge_decoder(
-                z_1, z_2, batch_masked_edges, sigmoid=False
+                z_1, z_1, batch_masked_edges, sigmoid=False  # Use View 1 for both source and dest
             )
-            neg_out_1 = self.edge_decoder(z_1, z_2, batch_neg_edges, sigmoid=False)
+            neg_out_1 = self.edge_decoder(z_1, z_1, batch_neg_edges, sigmoid=False)
 
-            pos_out_2 = self.edge_decoder(
-                z_2, z_1, batch_masked_edges, sigmoid=False
-            )
-            neg_out_2 = self.edge_decoder(z_2, z_1, batch_neg_edges, sigmoid=False)
+            # pos_out_2 = self.edge_decoder(  # Second cross-view prediction removed
+            #     z_2, z_1, batch_masked_edges, sigmoid=False
+            # )
+            # neg_out_2 = self.edge_decoder(z_2, z_1, batch_neg_edges, sigmoid=False)
 
-            loss_edge = (self.loss_edgefn(pos_out_1, neg_out_1) + self.loss_edgefn(pos_out_2, neg_out_2))
+            loss_edge = self.loss_edgefn(pos_out_1, neg_out_1)  # Single-view edge loss
 
 
             z_1_p = z_1
             z_2_p = z_2
             loss_con = self.contrastive_loss(z_1_p, z_2_p, temperature=self.temp)
-            z = (z_1 + z_2) * 0.5
+            # z = (z_1 + z_2) * 0.5  # Fusion disabled
+            z = z_1  # Use only View 1
 
 
             x_recon = self.projector(z)
@@ -393,7 +395,7 @@ class Model(nn.Module):
                 loss_density = F.mse_loss(pred_density, target_density)
 
             # loss_total = loss_edge + loss_con + loss_recon
-            print(f'loss density: {100 * loss_density}, other losses: {loss_edge + loss_recon}')
+            # print(f'loss density: {100 * loss_density}, other losses: {loss_edge + loss_recon}')
             # print(f'loss contrastive: {loss_con}')
             loss_total = loss_edge + loss_recon + (100 * loss_density)
 
