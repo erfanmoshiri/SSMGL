@@ -204,6 +204,40 @@ def compute_neighborhood_density(adj, true_features, train_id):
     return density
 
 
+def compute_neighborhood_residual(adj, masked_features, train_id):
+    """
+    Pre-compute residual (deviation from neighborhood mean) per feature.
+    For observable nodes: residual = node_features - mean(neighbor_features)
+
+    Args:
+        adj: Sparse adjacency matrix
+        masked_features: Features with vali_test_id = 0
+        train_id: Observable nodes
+
+    Returns:
+        residual: (N, F) tensor, non-zero only for observable nodes
+    """
+    num_nodes = masked_features.size(0)
+    device = masked_features.device
+
+    adj_dense = adj.to_dense()
+    train_mask = torch.zeros(num_nodes, dtype=torch.bool, device=device)
+    train_mask[train_id] = True
+
+    residual = torch.zeros_like(masked_features)
+
+    # Only compute for observable nodes
+    for node_i in train_id:
+        neighbors = adj_dense[node_i].nonzero(as_tuple=True)[0]
+        obs_neighbors = neighbors[train_mask[neighbors]]
+
+        if len(obs_neighbors) > 0:
+            neighbor_mean = masked_features[obs_neighbors].float().mean(dim=0)
+            residual[node_i] = masked_features[node_i].float() - neighbor_mean
+
+    return residual
+
+
 def compute_fixed_features(adj, true_features, train_id, vali_test_id):
     """
     Compute fixed features for missing nodes using neighbor averaging.
@@ -289,8 +323,15 @@ class Model(nn.Module):
                 nn.ReLU(),
                 nn.Linear(hidden_dim, feature_dim)
             )
+            # Residual predictor (per-feature deviation)
+            self.residual_predictor = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, feature_dim)
+            )
         else:
             self.density_predictor = None
+            self.residual_predictor = None
 
         if loss == "ce":
             self.loss_edgefn = ce_loss
@@ -324,15 +365,14 @@ class Model(nn.Module):
 
         z_1 = self.encoder(x_1, edge_index_1)
         z_2 = self.encoder(x_2, edge_index_1)
-        # z = (z_1 + z_2) * 0.5  # Fusion disabled
-        z = z_1  # Use only View 1
+        z = (z_1 + z_2) * 0.5  # Fuse views
         out = self.projector(z)
         return out
 
 
     def train_one_epoch(
             self, data_1, data_2, norm_adj, fixed_features, train_fts_idx, vali_test_fts_idx,
-            target_density=None, batch_size=2 ** 16):
+            target_density=None, target_residual=None, batch_size=2 ** 16):
         """
         Train one epoch with FIXED features.
         """
@@ -364,40 +404,49 @@ class Model(nn.Module):
             batch_masked_edges = masked_edges[:, perm]
             batch_neg_edges = neg_edges[:, perm]
 
+            # Cross-view edge prediction (both directions)
             pos_out_1 = self.edge_decoder(
-                z_1, z_1, batch_masked_edges, sigmoid=False  # Use View 1 for both source and dest
+                z_1, z_2, batch_masked_edges, sigmoid=False
             )
-            neg_out_1 = self.edge_decoder(z_1, z_1, batch_neg_edges, sigmoid=False)
+            neg_out_1 = self.edge_decoder(z_1, z_2, batch_neg_edges, sigmoid=False)
 
-            # pos_out_2 = self.edge_decoder(  # Second cross-view prediction removed
-            #     z_2, z_1, batch_masked_edges, sigmoid=False
-            # )
-            # neg_out_2 = self.edge_decoder(z_2, z_1, batch_neg_edges, sigmoid=False)
+            pos_out_2 = self.edge_decoder(
+                z_2, z_1, batch_masked_edges, sigmoid=False
+            )
+            neg_out_2 = self.edge_decoder(z_2, z_1, batch_neg_edges, sigmoid=False)
 
-            loss_edge = self.loss_edgefn(pos_out_1, neg_out_1)  # Single-view edge loss
+            loss_edge = (self.loss_edgefn(pos_out_1, neg_out_1) + self.loss_edgefn(pos_out_2, neg_out_2))
 
-
+            # Contrastive loss between views
             z_1_p = z_1
             z_2_p = z_2
             loss_con = self.contrastive_loss(z_1_p, z_2_p, temperature=self.temp)
-            # z = (z_1 + z_2) * 0.5  # Fusion disabled
-            z = z_1  # Use only View 1
+
+            z = (z_1 + z_2) * 0.5  # Fuse views for reconstruction
 
 
             x_recon = self.projector(z)
             loss_recon = self.rec_loss(x_recon[train_fts_idx], x_1_[train_fts_idx], self.pos_weight_tensor,
                                        self.neg_weight_tensor)
 
-            # Neighborhood density SSL loss
+            # Density SSL: predict from View 1
             loss_density = torch.tensor(0.0, device=z.device)
             if self.density_predictor is not None and target_density is not None:
-                pred_density = self.density_predictor(z)
+                pred_density = self.density_predictor(z_1)
                 loss_density = F.mse_loss(pred_density, target_density)
 
-            # loss_total = loss_edge + loss_con + loss_recon
-            # print(f'loss density: {100 * loss_density}, other losses: {loss_edge + loss_recon}')
-            # print(f'loss contrastive: {loss_con}')
-            loss_total = loss_edge + loss_recon + (100 * loss_density)
+            # Residual SSL: predict from View 2 (PPR)
+            loss_residual = torch.tensor(0.0, device=z.device)
+            if self.residual_predictor is not None and target_residual is not None:
+                pred_residual = self.residual_predictor(z_2)
+                # Only compute on observable nodes (where target is non-zero)
+                mask = target_residual.abs().sum(dim=1) > 0
+                if mask.sum() > 0:
+                    loss_residual = F.mse_loss(pred_residual[mask], target_residual[mask])
+
+            print(f'contrsative: {loss_con}')
+            loss_total = loss_edge + loss_con + loss_recon + (100 * loss_density) + (50 * loss_residual)
+            print(f'total: {loss_total}')
 
 
-        return loss_total, loss_edge, loss_con, loss_recon, loss_density
+        return loss_total, loss_edge, loss_con, loss_recon, loss_density, loss_residual

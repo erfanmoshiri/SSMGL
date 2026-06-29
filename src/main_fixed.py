@@ -96,10 +96,15 @@ def main(args):
     fixed_features = compute_fixed_features(adj, true_features, train_id, vali_test_id)
     print(f'Fixed features computed for {len(vali_test_id)} missing nodes')
 
-    # Compute neighborhood density SSL target (once before training)
-    print('Computing neighborhood density for SSL objective...')
+    # Compute SSL targets (once before training)
+    print('Computing SSL objectives...')
     target_density = compute_neighborhood_density(adj, true_features, train_id)
-    print(f'Neighborhood density computed for all nodes')
+
+    # Residual: computed AFTER masking, only for observable nodes
+    masked_features = true_features.clone()
+    masked_features[vali_test_id] = 0.0
+    target_residual = compute_neighborhood_residual(adj, masked_features, train_id)
+    print(f'SSL targets computed: density + residual')
 
     encoder = GNNEncoder(data_1.num_features, args.encoder_channels, args.hidden_channels,
                          num_layers=args.encoder_layers, dropout=args.encoder_dropout,
@@ -132,6 +137,7 @@ def main(args):
         model = model.cuda()
         fixed_features = fixed_features.cuda()
         target_density = target_density.cuda()
+        target_residual = target_residual.cuda()
         norm_adj = norm_adj.cuda()
 
     eva_values_list = []
@@ -143,7 +149,8 @@ def main(args):
         'edge': [],
         'contrastive': [],
         'reconstruction': [],
-        'density': []
+        'density': [],
+        'residual': []
     }
 
     print('---------------------start training (FIXED features)------------------------')
@@ -151,8 +158,9 @@ def main(args):
         model.train()
 
         # NO feature_learn.train() - features are FIXED!
-        loss_total, loss_edge, loss_con, loss_recon, loss_density = model.train_one_epoch(
-            data_1, data_2, norm_adj, fixed_features, train_id, vali_test_id, target_density=target_density)
+        loss_total, loss_edge, loss_con, loss_recon, loss_density, loss_residual = model.train_one_epoch(
+            data_1, data_2, norm_adj, fixed_features, train_id, vali_test_id,
+            target_density=target_density, target_residual=target_residual)
 
         optimizer.zero_grad()
         loss_total.backward()
@@ -165,6 +173,7 @@ def main(args):
         loss_history['contrastive'].append(loss_con.item())
         loss_history['reconstruction'].append(loss_recon.item())
         loss_history['density'].append(loss_density.item())
+        loss_history['residual'].append(loss_residual.item())
 
         if epoch % 20 == 0:
             model.eval()
@@ -183,6 +192,7 @@ def main(args):
                 'loss_contrastive': loss_con.item(),
                 'loss_reconstruction': loss_recon.item(),
                 'loss_density': loss_density.item(),
+                'loss_residual': loss_residual.item(),
                 'recall': avg_recall,
                 'ndcg': avg_ndcg
             })
@@ -230,6 +240,7 @@ def main(args):
     print(f"Final Contrastive Loss: {loss_history['contrastive'][-1]:.4f}")
     print(f"Final Reconstruction Loss: {loss_history['reconstruction'][-1]:.4f}")
     print(f"Final Density Loss: {loss_history['density'][-1]:.4f}")
+    print(f"Final Residual Loss: {loss_history['residual'][-1]:.4f}")
     print("="*60)
 
 
