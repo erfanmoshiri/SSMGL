@@ -176,3 +176,18 @@ Data split:
 - Edge masking is training augmentation, not part of imputation problem
 - Fixed baseline uses realistic setup: full graph structure, partial features
 - Run folders automatically timestamped in `runs/`
+
+
+
+Evaluation baselines to test against:
+- KNN
+- NeighbourAggr: a simple approach that aggregates the features of neighboring nodes through mean pooling
+- VAE
+- GraphSAGE
+- GAT
+- GraphRNA
+- SVGA 
+- ARWMF: Attributed Random Walk as Matrix Factorization
+- ITR ?
+- SAT
+- MATE
